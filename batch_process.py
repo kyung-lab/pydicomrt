@@ -5,6 +5,7 @@ import os.path as osp
 import numpy as np
 from warnings import warn
 from copy import deepcopy
+import itertools
 
 from rt_utils import RTStructBuilder
 from rt_utils.utils import Polygon2D
@@ -16,9 +17,8 @@ from dicom_utils import (read_dicoms,
                          osirix_get_reference_uid,
                          build_SOPInstanceUID_lookup_table)
 
-
-# all_sstudies = glob('/media/hdd1/IDX_MiaoHaoxinReviewed_12152022/IDX_MiaoHaoxinReviewed_12152022/*')
-all_sstudies = glob('/media/hdd1/Code/dicomrt/OsiriX_SR_Annotation/examples/DICOM/*')
+all_sstudies = glob('/media/hdd1/IDX_MiaoHaoxinReviewed_12152022/IDX_MiaoHaoxinReviewed_12152022/*')
+# all_sstudies = glob('/media/hdd1/Code/dicomrt/OsiriX_SR_Annotation/examples/DICOM/*')
 
 
 osirix_parser = OsirixSRParser()
@@ -27,6 +27,7 @@ processed = 0
 missed_no_associated = 0
 
 for study in all_sstudies:
+    study_id = osp.split(study)[-1]
     dicoms = read_dicoms(study)
     # 
     SOPInstanceUID_lookup_table = build_SOPInstanceUID_lookup_table(dicoms)
@@ -34,18 +35,16 @@ for study in all_sstudies:
     # find out all Osirix SR files
     osirix_sr = find_osirix_sr(dicoms)
 
-    # check if associated SeriesInstanceUID exists
-    associated_exist = True
-    for osx in osirix_sr:
-        if osirix_get_reference_uid(osx) not in SOPInstanceUID_lookup_table:
-            warn(f"{osirix_get_reference_uid(osx)} doest not exist.")
-            associated_exist = False
-    if not associated_exist:
-        missed_no_associated += 1
-        continue
+    # eliminate all OsirixSR files without an associated dicom
+    associated = [osirix_get_reference_uid(osx) in SOPInstanceUID_lookup_table for osx in osirix_sr]
+    if not all(associated):
+        ignored = [osp.basename(osx.fullpath) for osx, ass in zip(osirix_sr, associated) if ass is False]
+        ignored_str = ", ".join(ignored)
+        warn(f"study \"{study}\" OsirixSR \"{ignored_str}\" ignored due to unable to find associated dicom")
+        osirix_sr = list(itertools.compress(osirix_sr, associated))
 
-    # assign Osirix SR into series
-    # since the Osirix SR ROIs might be annotated in difference series
+    # assign Osirix SR to series
+    # since the Osirix SR ROIs might be annotated on difference series
     series_instance_uid2osirixsr = dict()
     for osx in osirix_sr:
         series_instance_uid = SOPInstanceUID_lookup_table[osirix_get_reference_uid(osx)].SeriesInstanceUID
@@ -56,10 +55,14 @@ for study in all_sstudies:
 
     for series_instance_uid, osirix_sr in series_instance_uid2osirixsr.items():
         series = series_instance_uid2series[series_instance_uid]
-        tmp_dir = osp.join(study, 'tmp')
+        tmp_dir = osp.join('/tmp/OsirixSR2dicomrt', study_id)
         os.makedirs(tmp_dir, exist_ok=True)
         for ds in series:
             ds = deepcopy(ds)
+            try:
+                ds.pixel_array
+            except:
+                warn(f"\"{ds.fullpath}\" cannot access pixel_array")
             fn = osp.basename(ds.fullpath)
             delattr(ds, 'fullpath')
             if not hasattr(ds, 'StudyID'):
@@ -69,7 +72,7 @@ for study in all_sstudies:
         try:
             rtstruct  = RTStructBuilder.create_new(dicom_series_path=tmp_dir)
         except:
-            print(f"Cannot create RTStructure for {tmp_dir}")
+            warn(f"Cannot create RTStructure for {tmp_dir}")
             continue
         h, w = series[0].pixel_array.shape
         polygons = [[Polygon2D(coords=[], h=h, w=w)],] * len(series)

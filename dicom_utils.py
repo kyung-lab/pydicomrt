@@ -13,7 +13,7 @@ def osirix_get_reference_uid(ds):
 
 def read_dicoms(input, return_path=False):
     assert osp.isdir(input)
-    dicoms = sorted(glob(f"{input}/**/*.dcm"))
+    dicoms = sorted(glob(f"{input}/**/*.dcm", recursive = True))
     results = []
     for d in dicoms:
         ds = pydicom.dcmread(d)
