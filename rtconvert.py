@@ -115,4 +115,6 @@ if __name__ == "__main__":
     args = parse_args()
     if not osp.isdir(args.dicom):
         raise RuntimeError(f'{args.dicom} is not a directory')
+    if args.dicom == '/':
+        warn("You are searching dicoms in the root directory, this might be very time-consuming. Consider providing a sub-directory.")
     process(args.dicom)
