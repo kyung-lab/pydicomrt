@@ -98,12 +98,20 @@ def process(data_dir):
                 warn(f"Cannot create RTStructure for {tmp_dir}")
                 continue
             h, w = series[0].pixel_array.shape
-            polygons = [[Polygon2D(coords=[], h=h, w=w)],] * len(series)
+            polygons = [Polygon2D(coords=[], h=h, w=w),] * len(series)
+            named_rois = dict()
             for osx in osirix_sr:
                 instance_number = int(SOPInstanceUID_lookup_table[osirix_get_reference_uid(osx)].InstanceNumber)
                 roi = osirix_parser(osx)
-                polygons[instance_number-1] = [Polygon2D(coords=roi.flatten().tolist(), h=h, w=w)]
-            rtstruct.add_roi(polygon=polygons)
+                for name, coords in roi.items():
+                    if name in named_rois:
+                        named_rois[name][instance_number-1] = Polygon2D(coords=coords.flatten().tolist(), h=h, w=w)
+                    else:
+                        named_rois[name] = [Polygon2D(coords=[], h=h, w=w)] * len(series)
+                        named_rois[name][instance_number-1] = Polygon2D(coords=coords.flatten().tolist(), h=h, w=w)
+                # polygons[instance_number-1] = [Polygon2D(coords=roi.flatten().tolist(), h=h, w=w)]
+            for name, roi in named_rois.items():
+                rtstruct.add_roi(polygon=roi, name=name)
             save_path = osp.join(study_prefix, "RTStructure", f'{series[0].SeriesDescription}_rtstruct.dcm')
             os.makedirs(osp.dirname(save_path), exist_ok=True)
             print(f"Saved structure set to \"{save_path}\"")
